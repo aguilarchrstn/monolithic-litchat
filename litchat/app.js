@@ -259,11 +259,14 @@ function getHTML() {
     background: linear-gradient(160deg, var(--bg-base), var(--bg-deep));
     color: var(--text-main);
     overflow: hidden;
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior: none;
   }
 
   #app {
     display: flex;
     height: 100vh;
+    height: 100dvh; /* real visible viewport on mobile browsers */
     width: 100vw;
   }
 
@@ -275,8 +278,18 @@ function getHTML() {
     display: flex;
     flex-direction: column;
     padding: 20px 16px;
+    padding-top: calc(20px + env(safe-area-inset-top));
+    padding-left: calc(16px + env(safe-area-inset-left));
     border-right: 1px solid var(--border-soft);
   }
+
+  #sidebarOverlay {
+    display: none;
+  }
+
+  #closeSidebarBtn { display: none; }
+
+  #menuToggleBtn { display: none; }
 
   .brand {
     display: flex;
@@ -300,6 +313,30 @@ function getHTML() {
     font-size: 20px;
     font-weight: 700;
     letter-spacing: 0.3px;
+    flex-grow: 1;
+  }
+
+  #closeSidebarBtn {
+    background: rgba(255,255,255,0.12);
+    border: none;
+    color: #fff;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    font-size: 15px;
+    cursor: pointer;
+  }
+
+  #menuToggleBtn {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.12);
+    color: var(--text-main);
+    width: 38px;
+    height: 38px;
+    border-radius: 9px;
+    font-size: 17px;
+    cursor: pointer;
+    flex-shrink: 0;
   }
 
   .side-block {
@@ -570,6 +607,128 @@ function getHTML() {
   .empty-state .icon { font-size: 42px; margin-bottom: 12px; }
   .empty-state .title { font-size: 16px; font-weight: 700; color: var(--text-main); margin-bottom: 6px; }
   .empty-state .sub { font-size: 13px; line-height: 1.5; }
+
+  /* =========================================================
+     MOBILE (phones — Android & iOS), also covers small tablets
+     ========================================================= */
+  @media (max-width: 768px) {
+    #app {
+      position: relative;
+      overflow: hidden;
+    }
+
+    #menuToggleBtn { display: inline-flex; align-items: center; justify-content: center; }
+    #closeSidebarBtn { display: inline-flex; align-items: center; justify-content: center; }
+
+    #sidebar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      width: 82vw;
+      max-width: 320px;
+      min-width: 0;
+      z-index: 40;
+      transform: translateX(-100%);
+      transition: transform 0.25s ease;
+      box-shadow: 8px 0 24px rgba(0,0,0,0.4);
+      padding-bottom: calc(20px + env(safe-area-inset-bottom));
+    }
+
+    #sidebar.open {
+      transform: translateX(0);
+    }
+
+    #sidebarOverlay {
+      display: block;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 30;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease;
+    }
+
+    #sidebarOverlay.open {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    #main {
+      width: 100%;
+    }
+
+    #chatHeader {
+      padding: 0 14px;
+      padding-top: env(safe-area-inset-top);
+      height: calc(56px + env(safe-area-inset-top));
+      gap: 10px;
+    }
+
+    #headerTitle {
+      font-size: 14px;
+      flex-grow: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    #skipBtn {
+      padding: 8px 12px;
+      font-size: 12.5px;
+      flex-shrink: 0;
+    }
+
+    #messages {
+      padding: 16px 14px;
+    }
+
+    .bubble {
+      max-width: 82%;
+      font-size: 15px;
+    }
+
+    #inputBar {
+      padding: 12px 14px calc(14px + env(safe-area-inset-bottom));
+      padding-left: calc(14px + env(safe-area-inset-left));
+      padding-right: calc(14px + env(safe-area-inset-right));
+      gap: 8px;
+    }
+
+    /* 16px min font-size on inputs prevents iOS Safari auto-zoom on focus */
+    #msgInput, #tagInput {
+      font-size: 16px;
+    }
+
+    #msgInput {
+      padding: 12px 14px;
+    }
+
+    #sendBtn {
+      padding: 0 18px;
+      font-size: 14px;
+    }
+
+    #findBtn {
+      padding: 15px;
+      font-size: 15px;
+    }
+
+    /* Comfortable 44px+ touch targets */
+    #skipBtn, #sendBtn, #findBtn, .tag-chip button {
+      min-height: 44px;
+    }
+    .tag-chip button { min-height: auto; padding: 4px; }
+
+    .empty-state { padding: 0 10px; }
+  }
+
+  @media (max-width: 380px) {
+    .bubble { max-width: 88%; font-size: 14.5px; }
+    .brand-name { font-size: 18px; }
+  }
 </style>
 </head>
 <body>
@@ -580,6 +739,7 @@ function getHTML() {
     <div class="brand">
       <div class="brand-logo">💬</div>
       <div class="brand-name">Litchat</div>
+      <button id="closeSidebarBtn" aria-label="Close menu">✕</button>
     </div>
 
     <div class="side-block">
@@ -604,9 +764,12 @@ function getHTML() {
     <button id="findBtn">Find Stranger</button>
   </div>
 
+  <div id="sidebarOverlay"></div>
+
   <!-- MAIN -->
   <div id="main">
     <div id="chatHeader">
+      <button id="menuToggleBtn" aria-label="Open menu">☰</button>
       <div id="headerTitle"><span id="headerStatusDot"></span><span id="headerTitleText">Not connected</span></div>
       <button id="skipBtn" disabled>Next / Skip</button>
     </div>
@@ -641,6 +804,10 @@ function getHTML() {
   const tagChips          = document.getElementById('tagChips');
   const findBtn           = document.getElementById('findBtn');
   const skipBtn            = document.getElementById('skipBtn');
+  const sidebar             = document.getElementById('sidebar');
+  const sidebarOverlay      = document.getElementById('sidebarOverlay');
+  const menuToggleBtn       = document.getElementById('menuToggleBtn');
+  const closeSidebarBtn     = document.getElementById('closeSidebarBtn');
   const headerDot          = document.getElementById('headerStatusDot');
   const headerTitleText    = document.getElementById('headerTitleText');
   const messagesEl         = document.getElementById('messages');
@@ -655,6 +822,19 @@ function getHTML() {
   let searching = false;   // in matchmaking queue
   let typingTimeout = null;
   let partnerTypingTimeout = null;
+
+  // ---- Mobile sidebar drawer ----
+  function openSidebar() {
+    sidebar.classList.add('open');
+    sidebarOverlay.classList.add('open');
+  }
+  function closeSidebar() {
+    sidebar.classList.remove('open');
+    sidebarOverlay.classList.remove('open');
+  }
+  menuToggleBtn.addEventListener('click', openSidebar);
+  closeSidebarBtn.addEventListener('click', closeSidebar);
+  sidebarOverlay.addEventListener('click', closeSidebar);
 
   // ---- Tag input handling ----
   tagInput.addEventListener('keydown', (e) => {
@@ -715,6 +895,7 @@ function getHTML() {
     clearMessages();
     socket.emit('find-stranger', tags);
     enterSearchingState();
+    closeSidebar();
   }
 
   function enterSearchingState() {
