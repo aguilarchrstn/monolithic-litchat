@@ -1,0 +1,19 @@
+services:
+  litchat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: litchat:latest
+    container_name: litchat
+    restart: unless-stopped
+    ports:
+      - "${LITCHAT_PORT:-3000}:3000"
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s

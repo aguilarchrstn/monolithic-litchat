@@ -1,0 +1,13 @@
+{
+  "name": "litchat",
+  "version": "1.0.0",
+  "description": "Litchat - anonymous stranger chat (Omegle-style), single-file monolith",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  }
+}
