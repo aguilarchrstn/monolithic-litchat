@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
     image: litchat:latest
-    container_name: litchat
+    container_name: litchat-test
     restart: unless-stopped
     ports:
       - "${LITCHAT_PORT:-3000}:3000"
