@@ -3,8 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: litchat:latest
-    container_name: litchat-staging
+    image: litchat-prodt:latest
+    container_name: litchat-prod
     restart: unless-stopped
     ports:
       - "${LITCHAT_PORT:-3001}:3001"
