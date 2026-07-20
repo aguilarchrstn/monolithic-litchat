@@ -7,12 +7,12 @@ services:
     container_name: litchat
     restart: unless-stopped
     ports:
-      - "${LITCHAT_PORT:-3000}:3000"
+      - "${LITCHAT_PORT:-3001}:3001"
     environment:
-      - PORT=3000
+      - PORT=3001
       - NODE_ENV=production
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/"]
       interval: 30s
       timeout: 5s
       retries: 3
