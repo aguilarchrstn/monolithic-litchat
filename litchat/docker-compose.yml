@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: litchat-prodt:latest
+    image: litchat-prod:latest
     container_name: litchat-prod
     restart: unless-stopped
     ports:
