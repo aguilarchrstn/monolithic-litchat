@@ -10,6 +10,7 @@ RUN addgroup -S litchat && adduser -S litchat -G litchat
 # Install dependencies first (better layer caching — only re-runs on dep changes)
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund
+RUN apk update && apk upgrade --no-cache
 
 # Copy application source
 COPY app.js ./
