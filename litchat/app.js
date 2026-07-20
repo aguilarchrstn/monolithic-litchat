@@ -738,7 +738,7 @@ function getHTML() {
   <div id="sidebar">
     <div class="brand">
       <div class="brand-logo">💬</div>
-      <div class="brand-name">Litchat Test</div>
+      <div class="brand-name">Litchat Staging</div>
       <button id="closeSidebarBtn" aria-label="Close menu">✕</button>
     </div>
 
