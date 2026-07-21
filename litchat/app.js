@@ -664,28 +664,15 @@ function getHTML() {
     font-weight: 600;
   }
 
-  .react-trigger {
-    width: 24px;
-    height: 24px;
-    min-height: 0;
-    border-radius: 50%;
-    background: rgba(255,255,255,0.07);
-    border: 1px solid rgba(255,255,255,0.12);
-    color: var(--text-dim);
-    font-size: 14px;
-    line-height: 1;
+  .bubble.reactable {
     cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    opacity: 0.55;
-    transition: opacity 0.15s ease, background 0.15s ease, transform 0.1s ease;
-    padding: 0;
+    transition: filter 0.12s ease, transform 0.08s ease;
   }
-  .react-trigger:hover, .react-trigger:focus-visible {
-    opacity: 1;
-    background: rgba(255,255,255,0.16);
-    transform: scale(1.08);
+  .bubble.reactable:hover {
+    filter: brightness(1.1);
+  }
+  .bubble.reactable:active {
+    transform: scale(0.985);
   }
 
   #reactionPicker {
@@ -994,12 +981,6 @@ function getHTML() {
       font-size: 15px;
     }
 
-    .react-trigger {
-      width: 28px;
-      height: 28px;
-      opacity: 0.7;
-    }
-
     .reaction-picker-btn {
       font-size: 24px;
       padding: 7px;
@@ -1082,7 +1063,7 @@ function getHTML() {
   <div id="sidebar">
     <div class="brand">
       <div class="brand-logo">💬</div>
-      <div class="brand-name">Litchat-Test</div>
+      <div class="brand-name">Litchat-TEST</div>
       <button id="closeSidebarBtn" aria-label="Close menu">✕</button>
     </div>
 
@@ -1287,7 +1268,7 @@ function getHTML() {
 
   document.addEventListener('click', (e) => {
     if (!reactionPicker.classList.contains('open')) return;
-    if (!reactionPicker.contains(e.target) && !e.target.classList.contains('react-trigger')) {
+    if (!reactionPicker.contains(e.target) && !e.target.classList.contains('reactable')) {
       closeReactionPicker();
     }
   });
@@ -1305,8 +1286,9 @@ function getHTML() {
   function renderReactions(id) {
     const wrap = messagesEl.querySelector('.bubble-wrap[data-msg-id="' + id + '"]');
     if (!wrap) return;
+    const reactionsRow = wrap.querySelector('.msg-reactions-row');
     const badges = wrap.querySelector('.reaction-badges');
-    if (!badges) return;
+    if (!badges || !reactionsRow) return;
 
     const r = messageReactions.get(id) || { you: null, stranger: null };
     const entries = [];
@@ -1337,6 +1319,8 @@ function getHTML() {
       });
       badges.appendChild(badge);
     });
+
+    reactionsRow.style.display = merged.length ? 'flex' : 'none';
   }
 
   // ---- Mobile sidebar drawer ----
@@ -1582,23 +1566,20 @@ function getHTML() {
     wrap.appendChild(bubble);
 
     if (id) {
+      bubble.classList.add('reactable');
+      bubble.setAttribute('aria-label', 'React to this message');
+      bubble.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openReactionPicker(bubble, id);
+      });
+
       const reactionsRow = document.createElement('div');
       reactionsRow.className = 'msg-reactions-row';
+      reactionsRow.style.display = 'none';
 
       const badges = document.createElement('div');
       badges.className = 'reaction-badges';
       reactionsRow.appendChild(badges);
-
-      const trigger = document.createElement('button');
-      trigger.type = 'button';
-      trigger.className = 'react-trigger';
-      trigger.setAttribute('aria-label', 'Add reaction');
-      trigger.textContent = '+';
-      trigger.addEventListener('click', (e) => {
-        e.stopPropagation();
-        openReactionPicker(trigger, id);
-      });
-      reactionsRow.appendChild(trigger);
 
       wrap.appendChild(reactionsRow);
     }
