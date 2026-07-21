@@ -34,6 +34,9 @@ const userTags = new Map();
 
 const FALLBACK_MATCH_MS = 5000;
 
+/** Messenger-style reaction set — the only emoji the server will relay. */
+const ALLOWED_REACTIONS = ['👍', '❤️', '😆', '😢', '😮', '😡'];
+
 function broadcastUserCount() {
   io.emit('user-count', totalOnline);
 }
@@ -213,6 +216,21 @@ io.on('connection', (socket) => {
     if (!id) return;
 
     partnerSocket.emit('message-seen', { id });
+  });
+
+  socket.on('react-message', (payload) => {
+    const partnerId = activePairs.get(socket.id);
+    if (!partnerId) return;
+    const partnerSocket = io.sockets.sockets.get(partnerId);
+    if (!partnerSocket) return;
+
+    const id = payload && typeof payload.id === 'string' ? payload.id.slice(0, 64) : null;
+    if (!id) return;
+
+    let emoji = payload && typeof payload.emoji === 'string' ? payload.emoji : null;
+    if (emoji !== null && !ALLOWED_REACTIONS.includes(emoji)) return;
+
+    partnerSocket.emit('message-reaction', { id, emoji });
   });
 
   socket.on('typing', () => {
@@ -607,6 +625,109 @@ function getHTML() {
   }
   @keyframes spin { to { transform: rotate(360deg); } }
 
+  .msg-reactions-row {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 5px;
+  }
+
+  .reaction-badges {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+
+  .reaction-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 999px;
+    padding: 2px 7px;
+    font-size: 12.5px;
+    line-height: 1.5;
+    cursor: pointer;
+    color: var(--text-main);
+    transition: background 0.12s ease, transform 0.1s ease;
+  }
+  .reaction-badge:hover { background: rgba(255,255,255,0.16); transform: translateY(-1px); }
+  .reaction-badge.mine {
+    background: rgba(139,92,246,0.28);
+    border-color: rgba(139,92,246,0.55);
+  }
+  .reaction-count {
+    font-size: 10.5px;
+    color: var(--text-dim);
+    font-weight: 600;
+  }
+
+  .react-trigger {
+    width: 24px;
+    height: 24px;
+    min-height: 0;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.07);
+    border: 1px solid rgba(255,255,255,0.12);
+    color: var(--text-dim);
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.55;
+    transition: opacity 0.15s ease, background 0.15s ease, transform 0.1s ease;
+    padding: 0;
+  }
+  .react-trigger:hover, .react-trigger:focus-visible {
+    opacity: 1;
+    background: rgba(255,255,255,0.16);
+    transform: scale(1.08);
+  }
+
+  #reactionPicker {
+    position: fixed;
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: #241c3d;
+    border: 1px solid rgba(255,255,255,0.16);
+    border-radius: 999px;
+    padding: 6px 8px;
+    box-shadow: 0 14px 34px rgba(0,0,0,0.5);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(6px) scale(0.96);
+    transition: opacity 0.14s ease, transform 0.14s ease;
+  }
+  #reactionPicker.open {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0) scale(1);
+  }
+
+  .reaction-picker-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 21px;
+    line-height: 1;
+    padding: 5px;
+    border-radius: 50%;
+    transition: transform 0.12s ease, background 0.12s ease;
+  }
+  .reaction-picker-btn:hover, .reaction-picker-btn:focus-visible {
+    transform: scale(1.28);
+    background: rgba(255,255,255,0.1);
+  }
+  .reaction-picker-btn.active {
+    background: rgba(139,92,246,0.4);
+  }
+
   .msg-system {
     text-align: center;
     color: #9c96b8;
@@ -873,6 +994,22 @@ function getHTML() {
       font-size: 15px;
     }
 
+    .react-trigger {
+      width: 28px;
+      height: 28px;
+      opacity: 0.7;
+    }
+
+    .reaction-picker-btn {
+      font-size: 24px;
+      padding: 7px;
+    }
+
+    .reaction-badge {
+      padding: 4px 9px;
+      font-size: 13px;
+    }
+
     #inputBar {
       padding: 12px 14px calc(14px + env(safe-area-inset-bottom));
       padding-left: calc(14px + env(safe-area-inset-left));
@@ -945,7 +1082,7 @@ function getHTML() {
   <div id="sidebar">
     <div class="brand">
       <div class="brand-logo">💬</div>
-      <div class="brand-name">Litchat-TEST</div>
+      <div class="brand-name">Litchat-Test</div>
       <button id="closeSidebarBtn" aria-label="Close menu">✕</button>
     </div>
 
@@ -999,6 +1136,15 @@ function getHTML() {
 
 </div>
 
+<div id="reactionPicker" role="menu" aria-label="React to message">
+  <button type="button" class="reaction-picker-btn" data-emoji="👍" title="Like" aria-label="Like">👍</button>
+  <button type="button" class="reaction-picker-btn" data-emoji="❤️" title="Love" aria-label="Love">❤️</button>
+  <button type="button" class="reaction-picker-btn" data-emoji="😆" title="Haha" aria-label="Haha">😆</button>
+  <button type="button" class="reaction-picker-btn" data-emoji="😢" title="Sad" aria-label="Sad">😢</button>
+  <button type="button" class="reaction-picker-btn" data-emoji="😮" title="Wow" aria-label="Wow">😮</button>
+  <button type="button" class="reaction-picker-btn" data-emoji="😡" title="Angry" aria-label="Angry">😡</button>
+</div>
+
 <script src="/socket.io/socket.io.js"></script>
 <script>
   const socket = io();
@@ -1025,6 +1171,7 @@ function getHTML() {
   const welcomeScreen      = document.getElementById('welcomeScreen');
   const enterChatBtn       = document.getElementById('enterChatBtn');
   const rememberChoice     = document.getElementById('rememberChoice');
+  const reactionPicker     = document.getElementById('reactionPicker');
 
   // ---- State ----
   let tags = [];
@@ -1033,6 +1180,8 @@ function getHTML() {
   let typingTimeout = null;
   let partnerTypingTimeout = null;
   let pendingSeenIds = [];  // message ids received while the tab was unfocused
+  let messageReactions = new Map(); // id -> { you: emoji|null, stranger: emoji|null }
+  let activePickerMessageId = null;
 
   // ---- Welcome screen ----
   try {
@@ -1095,6 +1244,99 @@ function getHTML() {
       statusEl.innerHTML = DOUBLE_TICK;
       statusEl.classList.add('seen');
     }
+  }
+
+  // ---- Message reactions (Messenger-style: like/heart/haha/cry/wow/angry) ----
+  function openReactionPicker(triggerEl, id) {
+    if (!connected) return;
+    activePickerMessageId = id;
+
+    const mine = (messageReactions.get(id) || {}).you || null;
+    reactionPicker.querySelectorAll('.reaction-picker-btn').forEach((btn) => {
+      btn.classList.toggle('active', btn.getAttribute('data-emoji') === mine);
+    });
+
+    reactionPicker.classList.add('open');
+
+    const triggerRect = triggerEl.getBoundingClientRect();
+    const pickerRect = reactionPicker.getBoundingClientRect();
+
+    let left = triggerRect.left + triggerRect.width / 2 - pickerRect.width / 2;
+    left = Math.max(8, Math.min(left, window.innerWidth - pickerRect.width - 8));
+
+    let top = triggerRect.top - pickerRect.height - 10;
+    if (top < 8) top = triggerRect.bottom + 10; // flip below if no room above
+
+    reactionPicker.style.left = left + 'px';
+    reactionPicker.style.top = top + 'px';
+  }
+
+  function closeReactionPicker() {
+    reactionPicker.classList.remove('open');
+    activePickerMessageId = null;
+  }
+
+  reactionPicker.querySelectorAll('.reaction-picker-btn').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const emoji = btn.getAttribute('data-emoji');
+      if (activePickerMessageId) toggleMyReaction(activePickerMessageId, emoji);
+      closeReactionPicker();
+    });
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!reactionPicker.classList.contains('open')) return;
+    if (!reactionPicker.contains(e.target) && !e.target.classList.contains('react-trigger')) {
+      closeReactionPicker();
+    }
+  });
+  messagesEl.addEventListener('scroll', closeReactionPicker, { passive: true });
+  window.addEventListener('resize', closeReactionPicker);
+
+  function toggleMyReaction(id, emoji) {
+    const current = messageReactions.get(id) || { you: null, stranger: null };
+    current.you = current.you === emoji ? null : emoji; // tap again to remove/change
+    messageReactions.set(id, current);
+    renderReactions(id);
+    socket.emit('react-message', { id, emoji: current.you });
+  }
+
+  function renderReactions(id) {
+    const wrap = messagesEl.querySelector('.bubble-wrap[data-msg-id="' + id + '"]');
+    if (!wrap) return;
+    const badges = wrap.querySelector('.reaction-badges');
+    if (!badges) return;
+
+    const r = messageReactions.get(id) || { you: null, stranger: null };
+    const entries = [];
+    if (r.you) entries.push({ emoji: r.you, mine: true });
+    if (r.stranger) entries.push({ emoji: r.stranger, mine: false });
+
+    const merged = [];
+    entries.forEach((e) => {
+      const existing = merged.find((m) => m.emoji === e.emoji);
+      if (existing) {
+        existing.count += 1;
+        existing.mine = existing.mine || e.mine;
+      } else {
+        merged.push({ emoji: e.emoji, count: 1, mine: e.mine });
+      }
+    });
+
+    badges.innerHTML = '';
+    merged.forEach((m) => {
+      const badge = document.createElement('button');
+      badge.type = 'button';
+      badge.className = 'reaction-badge' + (m.mine ? ' mine' : '');
+      badge.innerHTML = m.emoji + (m.count > 1 ? ' <span class="reaction-count">' + m.count + '</span>' : '');
+      badge.title = m.mine ? 'Click to remove your reaction' : 'React with ' + m.emoji;
+      badge.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (connected) toggleMyReaction(id, m.emoji);
+      });
+      badges.appendChild(badge);
+    });
   }
 
   // ---- Mobile sidebar drawer ----
@@ -1227,11 +1469,15 @@ function getHTML() {
         : 'You are now chatting with a random stranger. Say hi!'
     );
     pendingSeenIds = [];
+    messageReactions = new Map();
+    closeReactionPicker();
   });
 
   socket.on('partner-left', () => {
     connected = false;
     pendingSeenIds = [];
+    messageReactions = new Map();
+    closeReactionPicker();
     addSystemMessage('Stranger has disconnected.');
     headerDot.className = '';
     headerTitleText.textContent = 'Not connected';
@@ -1260,6 +1506,13 @@ function getHTML() {
 
   socket.on('message-seen', ({ id }) => {
     setMessageStatus(id, 'seen');
+  });
+
+  socket.on('message-reaction', ({ id, emoji }) => {
+    const current = messageReactions.get(id) || { you: null, stranger: null };
+    current.stranger = emoji || null;
+    messageReactions.set(id, current);
+    renderReactions(id);
   });
 
   socket.on('typing', () => {
@@ -1321,11 +1574,34 @@ function getHTML() {
 
     const wrap = document.createElement('div');
     wrap.className = 'bubble-wrap';
+    if (id) wrap.setAttribute('data-msg-id', id);
 
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
     bubble.textContent = text;
     wrap.appendChild(bubble);
+
+    if (id) {
+      const reactionsRow = document.createElement('div');
+      reactionsRow.className = 'msg-reactions-row';
+
+      const badges = document.createElement('div');
+      badges.className = 'reaction-badges';
+      reactionsRow.appendChild(badges);
+
+      const trigger = document.createElement('button');
+      trigger.type = 'button';
+      trigger.className = 'react-trigger';
+      trigger.setAttribute('aria-label', 'Add reaction');
+      trigger.textContent = '+';
+      trigger.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openReactionPicker(trigger, id);
+      });
+      reactionsRow.appendChild(trigger);
+
+      wrap.appendChild(reactionsRow);
+    }
 
     if (from === 'you' && id) {
       const status = document.createElement('div');
