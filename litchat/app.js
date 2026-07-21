@@ -38,13 +38,18 @@ function broadcastUserCount() {
   io.emit('user-count', totalOnline);
 }
 
-function escapeHtml(str) {
+/**
+ * Sanitizes chat text as plain text (strips control characters, caps length).
+ * NOTE: we deliberately do NOT HTML-entity-encode here. The client renders
+ * messages via `element.textContent`, which already treats the string as
+ * inert plain text and can never be parsed as markup — so entity-encoding
+ * on top of that just produces literal "&#39;"-style text in the UI.
+ */
+function sanitizeText(str) {
   return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+    // Strip control/non-printable characters (keep normal whitespace).
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+    .slice(0, 2000);
 }
 
 function removeFromQueue(socketId) {
@@ -61,6 +66,13 @@ function sharesTag(tagsA, tagsB) {
   return tagsA.some((t) => setB.has(t));
 }
 
+/** Returns the tags two users have in common (order follows tagsA). */
+function intersectTags(tagsA, tagsB) {
+  if (!tagsA.length || !tagsB.length) return [];
+  const setB = new Set(tagsB);
+  return tagsA.filter((t) => setB.has(t));
+}
+
 /** Attempt to find a queued partner that shares at least one tag with `tags`. */
 function findTagMatch(excludeSocketId, tags) {
   return waitingQueue.find(
@@ -73,15 +85,17 @@ function findAnyMatch(excludeSocketId) {
   return waitingQueue.find((entry) => entry.socketId !== excludeSocketId);
 }
 
-function pairSockets(socketA, socketB) {
+function pairSockets(socketA, socketB, tagsA, tagsB) {
   removeFromQueue(socketA.id);
   removeFromQueue(socketB.id);
 
   activePairs.set(socketA.id, socketB.id);
   activePairs.set(socketB.id, socketA.id);
 
-  socketA.emit('matched');
-  socketB.emit('matched');
+  const sharedTags = intersectTags(tagsA || [], tagsB || []);
+
+  socketA.emit('matched', { sharedTags });
+  socketB.emit('matched', { sharedTags });
 }
 
 /** Called when a user requests a match (initial find, or "Next"/skip). */
@@ -93,7 +107,7 @@ function enterMatchmaking(socket, tags) {
   if (tagPartnerEntry) {
     const partnerSocket = io.sockets.sockets.get(tagPartnerEntry.socketId);
     if (partnerSocket) {
-      pairSockets(socket, partnerSocket);
+      pairSockets(socket, partnerSocket, tags, tagPartnerEntry.tags);
       return;
     }
     // Stale entry (socket gone) — clean it up and continue.
@@ -119,7 +133,7 @@ function enterMatchmaking(socket, tags) {
     if (anyPartnerEntry) {
       const partnerSocket = io.sockets.sockets.get(anyPartnerEntry.socketId);
       if (partnerSocket) {
-        pairSockets(socket, partnerSocket);
+        pairSockets(socket, partnerSocket, tags, anyPartnerEntry.tags);
         return;
       }
       removeFromQueue(anyPartnerEntry.socketId);
@@ -171,16 +185,34 @@ io.on('connection', (socket) => {
     enterMatchmaking(socket, tags);
   });
 
-  socket.on('chat-message', (text) => {
+  socket.on('chat-message', (payload) => {
     const partnerId = activePairs.get(socket.id);
     if (!partnerId) return;
     const partnerSocket = io.sockets.sockets.get(partnerId);
     if (!partnerSocket) return;
 
-    const clean = escapeHtml(text).slice(0, 2000);
-    if (!clean.trim()) return;
+    const rawText = payload && typeof payload === 'object' ? payload.text : payload;
+    const rawId = payload && typeof payload === 'object' ? payload.id : null;
+    const id = typeof rawId === 'string' ? rawId.slice(0, 64) : null;
 
-    partnerSocket.emit('chat-message', clean);
+    const clean = sanitizeText(rawText);
+    if (!clean.trim() || !id) return;
+
+    partnerSocket.emit('chat-message', { id, text: clean });
+    // Delivery ack: the partner's socket successfully received the event.
+    socket.emit('message-delivered', { id });
+  });
+
+  socket.on('message-seen', (payload) => {
+    const partnerId = activePairs.get(socket.id);
+    if (!partnerId) return;
+    const partnerSocket = io.sockets.sockets.get(partnerId);
+    if (!partnerSocket) return;
+
+    const id = payload && typeof payload.id === 'string' ? payload.id.slice(0, 64) : null;
+    if (!id) return;
+
+    partnerSocket.emit('message-seen', { id });
   });
 
   socket.on('typing', () => {
@@ -525,8 +557,15 @@ function getHTML() {
   .msg-row.you { justify-content: flex-end; }
   .msg-row.stranger { justify-content: flex-start; }
 
-  .bubble {
+  .bubble-wrap {
     max-width: 62%;
+    display: flex;
+    flex-direction: column;
+  }
+  .msg-row.you .bubble-wrap { align-items: flex-end; }
+  .msg-row.stranger .bubble-wrap { align-items: flex-start; }
+
+  .bubble {
     padding: 10px 14px;
     border-radius: 14px;
     font-size: 14.5px;
@@ -546,6 +585,27 @@ function getHTML() {
     color: #f1f0f6;
     border-bottom-left-radius: 4px;
   }
+
+  .msg-status {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    margin-top: 3px;
+    padding-right: 2px;
+    font-size: 11px;
+    color: var(--text-dim);
+    height: 13px;
+  }
+
+  .msg-status svg { width: 14px; height: 14px; display: block; }
+  .msg-status.seen svg path { stroke: #4ade80; }
+  .msg-status .tick-sending {
+    width: 8px; height: 8px; border-radius: 50%;
+    border: 1.5px solid var(--text-dim);
+    border-top-color: transparent;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
   .msg-system {
     text-align: center;
@@ -607,6 +667,127 @@ function getHTML() {
   .empty-state .icon { font-size: 42px; margin-bottom: 12px; }
   .empty-state .title { font-size: 16px; font-weight: 700; color: var(--text-main); margin-bottom: 6px; }
   .empty-state .sub { font-size: 13px; line-height: 1.5; }
+
+  /* =========================================================
+     WELCOME SCREEN
+     ========================================================= */
+  #welcomeScreen {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background:
+      radial-gradient(900px 500px at 15% 0%, rgba(139,92,246,0.20), transparent),
+      radial-gradient(900px 500px at 85% 100%, rgba(76,29,149,0.35), transparent),
+      linear-gradient(160deg, var(--bg-base), var(--bg-deep));
+  }
+
+  #welcomeScreen.hidden { display: none; }
+
+  .welcome-card {
+    width: 100%;
+    max-width: 440px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 18px;
+    padding: 34px 30px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+    backdrop-filter: blur(6px);
+  }
+
+  .welcome-logo {
+    width: 56px;
+    height: 56px;
+    border-radius: 15px;
+    background: linear-gradient(135deg, var(--accent-strong), var(--accent));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    margin: 0 auto 16px;
+    box-shadow: 0 8px 22px rgba(124, 58, 237, 0.45);
+  }
+
+  .welcome-title {
+    text-align: center;
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: 0.2px;
+    margin-bottom: 6px;
+  }
+
+  .welcome-tagline {
+    text-align: center;
+    font-size: 14px;
+    color: var(--text-dim);
+    margin-bottom: 24px;
+    line-height: 1.5;
+  }
+
+  .welcome-rules {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 26px;
+  }
+
+  .welcome-rule {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 13.5px;
+    color: #ded9f0;
+    line-height: 1.4;
+  }
+
+  .welcome-rule .bullet {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    border-radius: 6px;
+    background: rgba(139,92,246,0.22);
+    color: var(--accent-hover);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    margin-top: 1px;
+  }
+
+  #enterChatBtn {
+    width: 100%;
+    padding: 15px;
+    border: none;
+    border-radius: 10px;
+    background: linear-gradient(135deg, var(--accent-strong), var(--accent));
+    color: #fff;
+    font-size: 15.5px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 8px 22px rgba(124, 58, 237, 0.35);
+    transition: filter 0.12s ease, transform 0.12s ease;
+  }
+  #enterChatBtn:hover { filter: brightness(1.08); transform: translateY(-1px); }
+  #enterChatBtn:active { transform: translateY(0); }
+
+  .welcome-remember {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    justify-content: center;
+    margin-top: 16px;
+    font-size: 12.5px;
+    color: var(--text-dim);
+  }
+  .welcome-remember input { accent-color: var(--accent); width: 15px; height: 15px; }
+
+  @media (max-width: 480px) {
+    .welcome-card { padding: 26px 22px; }
+    .welcome-title { font-size: 22px; }
+  }
 
   /* =========================================================
      MOBILE (phones — Android & iOS), also covers small tablets
@@ -685,8 +866,10 @@ function getHTML() {
       padding: 16px 14px;
     }
 
-    .bubble {
+    .bubble-wrap {
       max-width: 82%;
+    }
+    .bubble {
       font-size: 15px;
     }
 
@@ -726,19 +909,43 @@ function getHTML() {
   }
 
   @media (max-width: 380px) {
-    .bubble { max-width: 88%; font-size: 14.5px; }
+    .bubble-wrap { max-width: 88%; }
+    .bubble { font-size: 14.5px; }
     .brand-name { font-size: 18px; }
   }
 </style>
 </head>
 <body>
+
+<div id="welcomeScreen">
+  <div class="welcome-card">
+    <div class="welcome-logo">💬</div>
+    <div class="welcome-title">Welcome to Litchat</div>
+    <div class="welcome-tagline">Meet random strangers, chat instantly, and stay completely anonymous.</div>
+
+    <div class="welcome-rules">
+      <div class="welcome-rule"><span class="bullet">✓</span><span>You must be 18 or older to use Litchat.</span></div>
+      <div class="welcome-rule"><span class="bullet">✓</span><span>Be respectful — harassment, hate speech, and spam are not tolerated.</span></div>
+      <div class="welcome-rule"><span class="bullet">✓</span><span>Never share personal information with strangers.</span></div>
+      <div class="welcome-rule"><span class="bullet">✓</span><span>You can leave a chat and find a new match anytime.</span></div>
+    </div>
+
+    <button id="enterChatBtn">Start Chatting</button>
+
+    <label class="welcome-remember">
+      <input type="checkbox" id="rememberChoice" />
+      Don't show this again on this device
+    </label>
+  </div>
+</div>
+
 <div id="app">
 
   <!-- SIDEBAR -->
   <div id="sidebar">
     <div class="brand">
       <div class="brand-logo">💬</div>
-      <div class="brand-name">Litchat Staging</div>
+      <div class="brand-name">Litchat-STAGING</div>
       <button id="closeSidebarBtn" aria-label="Close menu">✕</button>
     </div>
 
@@ -815,6 +1022,9 @@ function getHTML() {
   const typingIndicator    = document.getElementById('typingIndicator');
   const msgInput           = document.getElementById('msgInput');
   const sendBtn            = document.getElementById('sendBtn');
+  const welcomeScreen      = document.getElementById('welcomeScreen');
+  const enterChatBtn       = document.getElementById('enterChatBtn');
+  const rememberChoice     = document.getElementById('rememberChoice');
 
   // ---- State ----
   let tags = [];
@@ -822,6 +1032,70 @@ function getHTML() {
   let searching = false;   // in matchmaking queue
   let typingTimeout = null;
   let partnerTypingTimeout = null;
+  let pendingSeenIds = [];  // message ids received while the tab was unfocused
+
+  // ---- Welcome screen ----
+  try {
+    if (localStorage.getItem('litchat_skip_welcome') === '1') {
+      welcomeScreen.classList.add('hidden');
+    }
+  } catch (e) { /* localStorage unavailable — just show the welcome screen */ }
+
+  enterChatBtn.addEventListener('click', () => {
+    if (rememberChoice.checked) {
+      try { localStorage.setItem('litchat_skip_welcome', '1'); } catch (e) { /* ignore */ }
+    }
+    welcomeScreen.classList.add('hidden');
+    msgInput && msgInput.blur();
+  });
+
+  // ---- Read-receipt tracking (window focus / visibility) ----
+  function windowIsActive() {
+    return document.hasFocus() && document.visibilityState === 'visible';
+  }
+
+  function markSeen(id) {
+    if (!id) return;
+    if (windowIsActive()) {
+      socket.emit('message-seen', { id });
+    } else {
+      pendingSeenIds.push(id);
+    }
+  }
+
+  function flushPendingSeen() {
+    if (!pendingSeenIds.length) return;
+    pendingSeenIds.forEach((id) => socket.emit('message-seen', { id }));
+    pendingSeenIds = [];
+  }
+
+  window.addEventListener('focus', flushPendingSeen);
+  document.addEventListener('visibilitychange', () => {
+    if (windowIsActive()) flushPendingSeen();
+  });
+
+  function genMessageId() {
+    return 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
+  }
+
+  const SENDING_TICK = '<span class="tick-sending"></span>';
+  const SENT_TICK = '<svg viewBox="0 0 16 16" fill="none"><path d="M3 8.5L6.2 11.5L13 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const DOUBLE_TICK = '<svg viewBox="0 0 20 16" fill="none"><path d="M1 8.5L4.2 11.5L11 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M6.5 8.5L9.7 11.5L16.5 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+  function setMessageStatus(id, state) {
+    const statusEl = messagesEl.querySelector('.msg-status[data-id="' + id + '"]');
+    if (!statusEl) return;
+    if (state === 'sent') {
+      statusEl.innerHTML = SENT_TICK;
+      statusEl.classList.remove('seen');
+    } else if (state === 'delivered') {
+      statusEl.innerHTML = DOUBLE_TICK;
+      statusEl.classList.remove('seen');
+    } else if (state === 'seen') {
+      statusEl.innerHTML = DOUBLE_TICK;
+      statusEl.classList.add('seen');
+    }
+  }
 
   // ---- Mobile sidebar drawer ----
   function openSidebar() {
@@ -923,7 +1197,14 @@ function getHTML() {
     enterSearchingState();
   });
 
-  socket.on('matched', () => {
+  function formatTagList(list) {
+    if (list.length === 1) return list[0];
+    if (list.length === 2) return list[0] + ' and ' + list[1];
+    return list.slice(0, -1).join(', ') + ', and ' + list[list.length - 1];
+  }
+
+  socket.on('matched', (data) => {
+    const sharedTags = (data && data.sharedTags) || [];
     searching = false;
     connected = true;
     findBtn.textContent = 'New Stranger';
@@ -932,17 +1213,25 @@ function getHTML() {
     headerDot.className = 'connected';
     headerTitleText.textContent = 'Chatting with Stranger';
     statusLine.textContent = 'Connected';
-    statusSub.textContent = 'You are now chatting with a stranger';
+    statusSub.textContent = sharedTags.length
+      ? 'Matched on: ' + sharedTags.join(', ')
+      : 'You are now chatting with a stranger';
     msgInput.disabled = false;
     sendBtn.disabled = false;
     msgInput.placeholder = 'Type a message...';
     msgInput.focus();
     clearMessages();
-    addSystemMessage('You are now chatting with a random stranger. Say hi!');
+    addSystemMessage(
+      sharedTags.length
+        ? 'You are now chatting with a stranger who also likes ' + formatTagList(sharedTags) + '. Say hi!'
+        : 'You are now chatting with a random stranger. Say hi!'
+    );
+    pendingSeenIds = [];
   });
 
   socket.on('partner-left', () => {
     connected = false;
+    pendingSeenIds = [];
     addSystemMessage('Stranger has disconnected.');
     headerDot.className = '';
     headerTitleText.textContent = 'Not connected';
@@ -957,9 +1246,20 @@ function getHTML() {
     typingIndicator.textContent = '';
   });
 
-  socket.on('chat-message', (text) => {
-    addMessage(text, 'stranger');
+  socket.on('chat-message', (payload) => {
+    const text = payload && typeof payload === 'object' ? payload.text : payload;
+    const id = payload && typeof payload === 'object' ? payload.id : null;
+    addMessage(text, 'stranger', id);
     typingIndicator.textContent = '';
+    markSeen(id);
+  });
+
+  socket.on('message-delivered', ({ id }) => {
+    setMessageStatus(id, 'delivered');
+  });
+
+  socket.on('message-seen', ({ id }) => {
+    setMessageStatus(id, 'seen');
   });
 
   socket.on('typing', () => {
@@ -979,8 +1279,9 @@ function getHTML() {
   function sendMessage() {
     const text = msgInput.value.trim();
     if (!text || !connected) return;
-    socket.emit('chat-message', text);
-    addMessage(text, 'you');
+    const id = genMessageId();
+    socket.emit('chat-message', { id, text });
+    addMessage(text, 'you', id);
     msgInput.value = '';
     socket.emit('stop-typing');
     clearTimeout(typingTimeout);
@@ -1013,14 +1314,30 @@ function getHTML() {
     messagesEl.innerHTML = '';
   }
 
-  function addMessage(text, from) {
+  function addMessage(text, from, id) {
     if (emptyState.parentNode) emptyState.remove();
     const row = document.createElement('div');
     row.className = 'msg-row ' + from;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'bubble-wrap';
+
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
     bubble.textContent = text;
-    row.appendChild(bubble);
+    wrap.appendChild(bubble);
+
+    if (from === 'you' && id) {
+      const status = document.createElement('div');
+      status.className = 'msg-status';
+      status.setAttribute('data-id', id);
+      status.innerHTML = SENDING_TICK;
+      wrap.appendChild(status);
+      // Mark as "sent" the instant it's queued on the wire.
+      requestAnimationFrame(() => setMessageStatus(id, 'sent'));
+    }
+
+    row.appendChild(wrap);
     messagesEl.appendChild(row);
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
