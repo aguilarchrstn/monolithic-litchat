@@ -38,13 +38,18 @@ function broadcastUserCount() {
   io.emit('user-count', totalOnline);
 }
 
-function escapeHtml(str) {
+/**
+ * Sanitizes chat text as plain text (strips control characters, caps length).
+ * NOTE: we deliberately do NOT HTML-entity-encode here. The client renders
+ * messages via `element.textContent`, which already treats the string as
+ * inert plain text and can never be parsed as markup — so entity-encoding
+ * on top of that just produces literal "&#39;"-style text in the UI.
+ */
+function sanitizeText(str) {
   return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+    // Strip control/non-printable characters (keep normal whitespace).
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+    .slice(0, 2000);
 }
 
 function removeFromQueue(socketId) {
@@ -181,7 +186,7 @@ io.on('connection', (socket) => {
     const rawId = payload && typeof payload === 'object' ? payload.id : null;
     const id = typeof rawId === 'string' ? rawId.slice(0, 64) : null;
 
-    const clean = escapeHtml(rawText).slice(0, 2000);
+    const clean = sanitizeText(rawText);
     if (!clean.trim() || !id) return;
 
     partnerSocket.emit('chat-message', { id, text: clean });
@@ -931,7 +936,7 @@ function getHTML() {
   <div id="sidebar">
     <div class="brand">
       <div class="brand-logo">💬</div>
-      <div class="brand-name">Litchat-TEST</div>
+      <div class="brand-name">Litchat-Test</div>
       <button id="closeSidebarBtn" aria-label="Close menu">✕</button>
     </div>
 
