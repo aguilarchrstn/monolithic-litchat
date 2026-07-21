@@ -1,5 +1,6 @@
 /**
- * Litchat — Anonymous Stranger Chat (Omegle-style)
+ * Viora — Anonymous Stranger Chat (Omegle-style)
+ * Meet. Chat. Connect.
  * Single-file monolith: Express + Socket.io server + embedded frontend.
  * No external DB — all state lives in memory, safe for a single Docker container.
  */
@@ -295,25 +296,43 @@ app.get('/', (req, res) => {
 });
 
 function getHTML() {
+  // Recreates the Viora mark (heart-face inside a rounded speech bubble,
+  // violet-to-pink gradient) as inline SVG so it's crisp at any size and
+  // needs no separate image asset shipped with the container.
+  const vioraLogoSvg = `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <defs>
+      <linearGradient id="vioraGrad" x1="10%" y1="0%" x2="95%" y2="100%">
+        <stop offset="0%" stop-color="#8245FB"/>
+        <stop offset="100%" stop-color="#FD66CD"/>
+      </linearGradient>
+    </defs>
+    <path d="M50 6C74.3 6 94 25.5 94 49.5c0 13.6-6.2 25.7-16 33.7.6 5.6 2.5 10.6 5.6 15a2.3 2.3 0 01-2.5 3.5c-8-1.9-15-5.2-20.7-9.6-3.4.6-6.9.9-10.4.9C25.7 93 6 73.5 6 49.5S25.7 6 50 6z" fill="url(#vioraGrad)"/>
+    <circle cx="39" cy="47" r="4.6" fill="#ffffff"/>
+    <circle cx="61" cy="47" r="4.6" fill="#ffffff"/>
+    <path d="M43 60l7 9 7-9" stroke="#ffffff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  </svg>`;
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Litchat — Talk to Strangers</title>
+<title>Viora — Meet. Chat. Connect.</title>
 <style>
   :root {
-    --bg-base: #0f0c1b;
-    --bg-deep: #1a103c;
-    --sidebar-grad-start: #4c1d95;
-    --sidebar-grad-end: #312e81;
-    --accent: #8b5cf6;
-    --accent-strong: #7c3aed;
-    --accent-hover: #a78bfa;
-    --bubble-you: #8b5cf6;
+    --bg-base: #120a1f;
+    --bg-deep: #1d1030;
+    --sidebar-grad-start: #6d28d9;
+    --sidebar-grad-end: #9d174d;
+    --accent: #a855f7;
+    --accent-strong: #8245fb;
+    --accent-hover: #fd66cd;
+    --accent-pink: #fd66cd;
+    --accent-magenta: #c026a3;
+    --bubble-you: #8245fb;
     --bubble-stranger: #33313f;
     --text-main: #f4f2ff;
-    --text-dim: #b6aed6;
+    --text-dim: #c3a9d8;
     --border-soft: rgba(255,255,255,0.08);
   }
 
@@ -367,15 +386,15 @@ function getHTML() {
   }
 
   .brand-logo {
-    width: 34px;
-    height: 34px;
-    border-radius: 9px;
-    background: rgba(255,255,255,0.15);
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 18px;
+    filter: drop-shadow(0 2px 6px rgba(0,0,0,0.25));
   }
+  .brand-logo svg { width: 100%; height: 100%; display: block; }
 
   .brand-name {
     font-size: 20px;
@@ -508,21 +527,21 @@ function getHTML() {
     padding: 14px;
     border: none;
     border-radius: 10px;
-    background: linear-gradient(135deg, var(--accent-strong), var(--accent));
+    background: linear-gradient(135deg, var(--accent-strong), var(--accent-magenta));
     color: #fff;
     font-size: 15px;
     font-weight: 700;
     cursor: pointer;
     letter-spacing: 0.2px;
     transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
-    box-shadow: 0 6px 18px rgba(124, 58, 237, 0.35);
+    box-shadow: 0 6px 18px rgba(130, 69, 251, 0.35);
   }
   #findBtn:hover { filter: brightness(1.08); transform: translateY(-1px); }
   #findBtn:active { transform: translateY(0); }
   #findBtn:disabled { opacity: 0.6; cursor: default; transform: none; }
 
   #findBtn.stop-mode {
-    background: linear-gradient(135deg, #6d28d9, #4c1d95);
+    background: linear-gradient(135deg, #6d28d9, #9d174d);
   }
 
   /* ---------------- MAIN PANE ---------------- */
@@ -530,7 +549,7 @@ function getHTML() {
     flex-grow: 1;
     display: flex;
     flex-direction: column;
-    background: radial-gradient(1200px 600px at 80% -10%, rgba(139,92,246,0.10), transparent),
+    background: radial-gradient(1200px 600px at 80% -10%, rgba(130,69,251,0.10), transparent),
                 var(--bg-base);
     min-width: 0;
   }
@@ -586,7 +605,7 @@ function getHTML() {
   }
 
   #messages::-webkit-scrollbar { width: 8px; }
-  #messages::-webkit-scrollbar-thumb { background: rgba(139,92,246,0.35); border-radius: 8px; }
+  #messages::-webkit-scrollbar-thumb { background: rgba(130,69,251,0.35); border-radius: 8px; }
   #messages::-webkit-scrollbar-track { background: transparent; }
 
   .msg-row { display: flex; align-items: flex-end; gap: 6px; }
@@ -611,7 +630,7 @@ function getHTML() {
   }
 
   .msg-row.you .bubble {
-    background: linear-gradient(135deg, var(--bubble-you), #a78bfa);
+    background: linear-gradient(135deg, var(--bubble-you), var(--accent-magenta));
     color: #fff;
     border-bottom-right-radius: 4px;
   }
@@ -673,8 +692,8 @@ function getHTML() {
   }
   .reaction-badge:hover { background: rgba(255,255,255,0.16); transform: translateY(-1px); }
   .reaction-badge.mine {
-    background: rgba(139,92,246,0.28);
-    border-color: rgba(139,92,246,0.55);
+    background: rgba(130,69,251,0.28);
+    border-color: rgba(130,69,251,0.55);
   }
   .reaction-count {
     font-size: 10.5px;
@@ -695,7 +714,7 @@ function getHTML() {
 
   @keyframes flashHighlight {
     0%, 100% { box-shadow: 0 2px 10px rgba(0,0,0,0.18); }
-    30% { box-shadow: 0 0 0 3px rgba(139,92,246,0.85); }
+    30% { box-shadow: 0 0 0 3px rgba(130,69,251,0.85); }
   }
   .bubble.highlight-flash {
     animation: flashHighlight 1s ease;
@@ -756,7 +775,7 @@ function getHTML() {
     align-items: center;
     gap: 10px;
     padding: 10px 22px;
-    background: rgba(139,92,246,0.09);
+    background: rgba(130,69,251,0.09);
     border-top: 1px solid var(--border-soft);
   }
   #replyPreviewBar.hidden { display: none; }
@@ -829,7 +848,7 @@ function getHTML() {
     background: rgba(255,255,255,0.1);
   }
   .reaction-picker-btn.active {
-    background: rgba(139,92,246,0.4);
+    background: rgba(130,69,251,0.4);
   }
 
   .msg-system {
@@ -874,7 +893,7 @@ function getHTML() {
     padding: 0 26px;
     border: none;
     border-radius: 10px;
-    background: linear-gradient(135deg, var(--accent-strong), var(--accent));
+    background: linear-gradient(135deg, var(--accent-strong), var(--accent-magenta));
     color: #fff;
     font-weight: 700;
     font-size: 14.5px;
@@ -905,8 +924,8 @@ function getHTML() {
     justify-content: center;
     padding: 24px;
     background:
-      radial-gradient(900px 500px at 15% 0%, rgba(139,92,246,0.20), transparent),
-      radial-gradient(900px 500px at 85% 100%, rgba(76,29,149,0.35), transparent),
+      radial-gradient(900px 500px at 15% 0%, rgba(130,69,251,0.20), transparent),
+      radial-gradient(900px 500px at 85% 100%, rgba(192,38,163,0.35), transparent),
       linear-gradient(160deg, var(--bg-base), var(--bg-deep));
   }
 
@@ -924,17 +943,15 @@ function getHTML() {
   }
 
   .welcome-logo {
-    width: 56px;
-    height: 56px;
-    border-radius: 15px;
-    background: linear-gradient(135deg, var(--accent-strong), var(--accent));
+    width: 68px;
+    height: 68px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 28px;
     margin: 0 auto 16px;
-    box-shadow: 0 8px 22px rgba(124, 58, 237, 0.45);
+    filter: drop-shadow(0 8px 22px rgba(130, 69, 251, 0.45));
   }
+  .welcome-logo svg { width: 100%; height: 100%; display: block; }
 
   .welcome-title {
     text-align: center;
@@ -973,7 +990,7 @@ function getHTML() {
     width: 20px;
     height: 20px;
     border-radius: 6px;
-    background: rgba(139,92,246,0.22);
+    background: rgba(130,69,251,0.22);
     color: var(--accent-hover);
     display: flex;
     align-items: center;
@@ -987,12 +1004,12 @@ function getHTML() {
     padding: 15px;
     border: none;
     border-radius: 10px;
-    background: linear-gradient(135deg, var(--accent-strong), var(--accent));
+    background: linear-gradient(135deg, var(--accent-strong), var(--accent-magenta));
     color: #fff;
     font-size: 15.5px;
     font-weight: 700;
     cursor: pointer;
-    box-shadow: 0 8px 22px rgba(124, 58, 237, 0.35);
+    box-shadow: 0 8px 22px rgba(130, 69, 251, 0.35);
     transition: filter 0.12s ease, transform 0.12s ease;
   }
   #enterChatBtn:hover { filter: brightness(1.08); transform: translateY(-1px); }
@@ -1165,12 +1182,12 @@ function getHTML() {
 
 <div id="welcomeScreen">
   <div class="welcome-card">
-    <div class="welcome-logo">💬</div>
-    <div class="welcome-title">Welcome to Litchat</div>
-    <div class="welcome-tagline">Meet random strangers, chat instantly, and stay completely anonymous.</div>
+    <div class="welcome-logo">${vioraLogoSvg}</div>
+    <div class="welcome-title">Welcome to Viora</div>
+    <div class="welcome-tagline">Meet. Chat. Connect. — talk to random strangers, instantly and anonymously.</div>
 
     <div class="welcome-rules">
-      <div class="welcome-rule"><span class="bullet">✓</span><span>You must be 18 or older to use Litchat.</span></div>
+      <div class="welcome-rule"><span class="bullet">✓</span><span>You must be 18 or older to use Viora.</span></div>
       <div class="welcome-rule"><span class="bullet">✓</span><span>Be respectful — harassment, hate speech, and spam are not tolerated.</span></div>
       <div class="welcome-rule"><span class="bullet">✓</span><span>Never share personal information with strangers.</span></div>
       <div class="welcome-rule"><span class="bullet">✓</span><span>You can leave a chat and find a new match anytime.</span></div>
@@ -1190,8 +1207,8 @@ function getHTML() {
   <!-- SIDEBAR -->
   <div id="sidebar">
     <div class="brand">
-      <div class="brand-logo">💬</div>
-      <div class="brand-name">Litchat-TEST</div>
+      <div class="brand-logo">${vioraLogoSvg}</div>
+      <div class="brand-name">Viora</div>
       <button id="closeSidebarBtn" aria-label="Close menu">✕</button>
     </div>
 
@@ -1308,14 +1325,14 @@ function getHTML() {
 
   // ---- Welcome screen ----
   try {
-    if (localStorage.getItem('litchat_skip_welcome') === '1') {
+    if (localStorage.getItem('viora_skip_welcome') === '1') {
       welcomeScreen.classList.add('hidden');
     }
   } catch (e) { /* localStorage unavailable — just show the welcome screen */ }
 
   enterChatBtn.addEventListener('click', () => {
     if (rememberChoice.checked) {
-      try { localStorage.setItem('litchat_skip_welcome', '1'); } catch (e) { /* ignore */ }
+      try { localStorage.setItem('viora_skip_welcome', '1'); } catch (e) { /* ignore */ }
     }
     welcomeScreen.classList.add('hidden');
     msgInput && msgInput.blur();
@@ -1834,5 +1851,5 @@ function getHTML() {
 // ---------------------------------------------------------------------------
 
 server.listen(PORT, () => {
-  console.log(`Litchat server running on port ${PORT}`);
+  console.log(`Viora server running on port ${PORT}`);
 });
