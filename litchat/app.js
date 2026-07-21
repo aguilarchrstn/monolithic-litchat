@@ -66,6 +66,13 @@ function sharesTag(tagsA, tagsB) {
   return tagsA.some((t) => setB.has(t));
 }
 
+/** Returns the tags two users have in common (order follows tagsA). */
+function intersectTags(tagsA, tagsB) {
+  if (!tagsA.length || !tagsB.length) return [];
+  const setB = new Set(tagsB);
+  return tagsA.filter((t) => setB.has(t));
+}
+
 /** Attempt to find a queued partner that shares at least one tag with `tags`. */
 function findTagMatch(excludeSocketId, tags) {
   return waitingQueue.find(
@@ -78,15 +85,17 @@ function findAnyMatch(excludeSocketId) {
   return waitingQueue.find((entry) => entry.socketId !== excludeSocketId);
 }
 
-function pairSockets(socketA, socketB) {
+function pairSockets(socketA, socketB, tagsA, tagsB) {
   removeFromQueue(socketA.id);
   removeFromQueue(socketB.id);
 
   activePairs.set(socketA.id, socketB.id);
   activePairs.set(socketB.id, socketA.id);
 
-  socketA.emit('matched');
-  socketB.emit('matched');
+  const sharedTags = intersectTags(tagsA || [], tagsB || []);
+
+  socketA.emit('matched', { sharedTags });
+  socketB.emit('matched', { sharedTags });
 }
 
 /** Called when a user requests a match (initial find, or "Next"/skip). */
@@ -98,7 +107,7 @@ function enterMatchmaking(socket, tags) {
   if (tagPartnerEntry) {
     const partnerSocket = io.sockets.sockets.get(tagPartnerEntry.socketId);
     if (partnerSocket) {
-      pairSockets(socket, partnerSocket);
+      pairSockets(socket, partnerSocket, tags, tagPartnerEntry.tags);
       return;
     }
     // Stale entry (socket gone) — clean it up and continue.
@@ -124,7 +133,7 @@ function enterMatchmaking(socket, tags) {
     if (anyPartnerEntry) {
       const partnerSocket = io.sockets.sockets.get(anyPartnerEntry.socketId);
       if (partnerSocket) {
-        pairSockets(socket, partnerSocket);
+        pairSockets(socket, partnerSocket, tags, anyPartnerEntry.tags);
         return;
       }
       removeFromQueue(anyPartnerEntry.socketId);
@@ -936,7 +945,7 @@ function getHTML() {
   <div id="sidebar">
     <div class="brand">
       <div class="brand-logo">💬</div>
-      <div class="brand-name">Litchat-Test</div>
+      <div class="brand-name">Litchat-TEST</div>
       <button id="closeSidebarBtn" aria-label="Close menu">✕</button>
     </div>
 
@@ -1188,7 +1197,14 @@ function getHTML() {
     enterSearchingState();
   });
 
-  socket.on('matched', () => {
+  function formatTagList(list) {
+    if (list.length === 1) return list[0];
+    if (list.length === 2) return list[0] + ' and ' + list[1];
+    return list.slice(0, -1).join(', ') + ', and ' + list[list.length - 1];
+  }
+
+  socket.on('matched', (data) => {
+    const sharedTags = (data && data.sharedTags) || [];
     searching = false;
     connected = true;
     findBtn.textContent = 'New Stranger';
@@ -1197,13 +1213,19 @@ function getHTML() {
     headerDot.className = 'connected';
     headerTitleText.textContent = 'Chatting with Stranger';
     statusLine.textContent = 'Connected';
-    statusSub.textContent = 'You are now chatting with a stranger';
+    statusSub.textContent = sharedTags.length
+      ? 'Matched on: ' + sharedTags.join(', ')
+      : 'You are now chatting with a stranger';
     msgInput.disabled = false;
     sendBtn.disabled = false;
     msgInput.placeholder = 'Type a message...';
     msgInput.focus();
     clearMessages();
-    addSystemMessage('You are now chatting with a random stranger. Say hi!');
+    addSystemMessage(
+      sharedTags.length
+        ? 'You are now chatting with a stranger who also likes ' + formatTagList(sharedTags) + '. Say hi!'
+        : 'You are now chatting with a random stranger. Say hi!'
+    );
     pendingSeenIds = [];
   });
 
