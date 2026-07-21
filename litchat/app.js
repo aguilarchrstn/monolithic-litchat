@@ -1108,6 +1108,17 @@ function getHTML() {
       font-size: 13px;
     }
 
+    .reply-trigger {
+      width: 30px;
+      height: 30px;
+    }
+
+    #replyPreviewBar {
+      padding: 10px 14px;
+      padding-left: calc(14px + env(safe-area-inset-left));
+      padding-right: calc(14px + env(safe-area-inset-right));
+    }
+
     #inputBar {
       padding: 12px 14px calc(14px + env(safe-area-inset-bottom));
       padding-left: calc(14px + env(safe-area-inset-left));
@@ -1226,6 +1237,15 @@ function getHTML() {
 
     <div id="typingIndicator"></div>
 
+    <div id="replyPreviewBar" class="hidden">
+      <div class="reply-preview-accent"></div>
+      <div class="reply-preview-content">
+        <div class="reply-preview-label" id="replyPreviewLabel">Replying to Stranger</div>
+        <div class="reply-preview-text" id="replyPreviewText"></div>
+      </div>
+      <button type="button" id="cancelReplyBtn" aria-label="Cancel reply">✕</button>
+    </div>
+
     <div id="inputBar">
       <input id="msgInput" type="text" placeholder="Connect with a stranger to start chatting..." disabled />
       <button id="sendBtn" disabled>Send</button>
@@ -1270,6 +1290,10 @@ function getHTML() {
   const enterChatBtn       = document.getElementById('enterChatBtn');
   const rememberChoice     = document.getElementById('rememberChoice');
   const reactionPicker     = document.getElementById('reactionPicker');
+  const replyPreviewBar    = document.getElementById('replyPreviewBar');
+  const replyPreviewLabel  = document.getElementById('replyPreviewLabel');
+  const replyPreviewText   = document.getElementById('replyPreviewText');
+  const cancelReplyBtn     = document.getElementById('cancelReplyBtn');
 
   // ---- State ----
   let tags = [];
@@ -1280,6 +1304,7 @@ function getHTML() {
   let pendingSeenIds = [];  // message ids received while the tab was unfocused
   let messageReactions = new Map(); // id -> { you: emoji|null, stranger: emoji|null }
   let activePickerMessageId = null;
+  let replyingTo = null; // { id, text, from } — the message currently being replied to
 
   // ---- Welcome screen ----
   try {
@@ -1328,6 +1353,35 @@ function getHTML() {
   const SENDING_TICK = '<span class="tick-sending"></span>';
   const SENT_TICK = '<svg viewBox="0 0 16 16" fill="none"><path d="M3 8.5L6.2 11.5L13 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   const DOUBLE_TICK = '<svg viewBox="0 0 20 16" fill="none"><path d="M1 8.5L4.2 11.5L11 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M6.5 8.5L9.7 11.5L16.5 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const REPLY_ICON = '<svg viewBox="0 0 24 24" fill="none"><path d="M9 14L4 9l5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 9h10a6 6 0 0 1 6 6v3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+  // ---- Reply-to-message ----
+  function startReply(id, text, from) {
+    if (!connected) return;
+    replyingTo = { id, text, from };
+    replyPreviewLabel.textContent = 'Replying to ' + (from === 'you' ? 'yourself' : 'Stranger');
+    replyPreviewText.textContent = text.length > 120 ? text.slice(0, 120) + '…' : text;
+    replyPreviewBar.classList.remove('hidden');
+    msgInput.focus();
+  }
+
+  function cancelReply() {
+    replyingTo = null;
+    replyPreviewBar.classList.add('hidden');
+  }
+
+  cancelReplyBtn.addEventListener('click', cancelReply);
+
+  function scrollToMessage(id) {
+    const target = messagesEl.querySelector('.bubble-wrap[data-msg-id="' + id + '"]');
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const bubbleEl = target.querySelector('.bubble');
+    if (bubbleEl) {
+      bubbleEl.classList.add('highlight-flash');
+      setTimeout(() => bubbleEl.classList.remove('highlight-flash'), 1000);
+    }
+  }
 
   function setMessageStatus(id, state) {
     const statusEl = messagesEl.querySelector('.msg-status[data-id="' + id + '"]');
@@ -1503,6 +1557,7 @@ function getHTML() {
   skipBtn.addEventListener('click', () => {
     if (!connected && !searching) return;
     clearMessages();
+    cancelReply();
     addSystemMessage('You skipped the stranger.');
     socket.emit('skip');
     enterSearchingState();
@@ -1572,6 +1627,7 @@ function getHTML() {
     pendingSeenIds = [];
     messageReactions = new Map();
     closeReactionPicker();
+    cancelReply();
   });
 
   socket.on('partner-left', () => {
@@ -1579,6 +1635,7 @@ function getHTML() {
     pendingSeenIds = [];
     messageReactions = new Map();
     closeReactionPicker();
+    cancelReply();
     addSystemMessage('Stranger has disconnected.');
     headerDot.className = '';
     headerTitleText.textContent = 'Not connected';
@@ -1596,7 +1653,8 @@ function getHTML() {
   socket.on('chat-message', (payload) => {
     const text = payload && typeof payload === 'object' ? payload.text : payload;
     const id = payload && typeof payload === 'object' ? payload.id : null;
-    addMessage(text, 'stranger', id);
+    const replyTo = payload && typeof payload === 'object' ? payload.replyTo : null;
+    addMessage(text, 'stranger', id, replyTo);
     typingIndicator.textContent = '';
     markSeen(id);
   });
@@ -1634,11 +1692,13 @@ function getHTML() {
     const text = msgInput.value.trim();
     if (!text || !connected) return;
     const id = genMessageId();
-    socket.emit('chat-message', { id, text });
-    addMessage(text, 'you', id);
+    const replyPayload = replyingTo ? { id: replyingTo.id, text: replyingTo.text, from: replyingTo.from } : null;
+    socket.emit('chat-message', { id, text, replyTo: replyPayload });
+    addMessage(text, 'you', id, replyPayload);
     msgInput.value = '';
     socket.emit('stop-typing');
     clearTimeout(typingTimeout);
+    cancelReply();
   }
 
   sendBtn.addEventListener('click', sendMessage);
@@ -1668,7 +1728,7 @@ function getHTML() {
     messagesEl.innerHTML = '';
   }
 
-  function addMessage(text, from, id) {
+  function addMessage(text, from, id, replyTo) {
     if (emptyState.parentNode) emptyState.remove();
     const row = document.createElement('div');
     row.className = 'msg-row ' + from;
@@ -1679,9 +1739,33 @@ function getHTML() {
 
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
-    bubble.textContent = text;
+
+    if (replyTo && replyTo.id && replyTo.text) {
+      const quote = document.createElement('div');
+      quote.className = 'quoted-reply';
+      quote.setAttribute('data-quote-id', replyTo.id);
+
+      const qLabel = document.createElement('div');
+      qLabel.className = 'quoted-reply-label';
+      qLabel.textContent = replyTo.from === 'you' ? 'You' : 'Stranger';
+
+      const qText = document.createElement('div');
+      qText.className = 'quoted-reply-text';
+      qText.textContent = replyTo.text;
+
+      quote.appendChild(qLabel);
+      quote.appendChild(qText);
+      quote.addEventListener('click', (e) => {
+        e.stopPropagation();
+        scrollToMessage(replyTo.id);
+      });
+      bubble.appendChild(quote);
+    }
+
+    bubble.appendChild(document.createTextNode(text));
     wrap.appendChild(bubble);
 
+    let replyBtn = null;
     if (id) {
       bubble.classList.add('reactable');
       bubble.setAttribute('aria-label', 'React to this message');
@@ -1699,6 +1783,16 @@ function getHTML() {
       reactionsRow.appendChild(badges);
 
       wrap.appendChild(reactionsRow);
+
+      replyBtn = document.createElement('button');
+      replyBtn.type = 'button';
+      replyBtn.className = 'reply-trigger';
+      replyBtn.setAttribute('aria-label', 'Reply to this message');
+      replyBtn.innerHTML = REPLY_ICON;
+      replyBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        startReply(id, text, from);
+      });
     }
 
     if (from === 'you' && id) {
@@ -1711,7 +1805,15 @@ function getHTML() {
       requestAnimationFrame(() => setMessageStatus(id, 'sent'));
     }
 
-    row.appendChild(wrap);
+    // Reply icon sits on the outer edge of the bubble (left for "you", right for "stranger").
+    if (replyBtn && from === 'you') {
+      row.appendChild(replyBtn);
+      row.appendChild(wrap);
+    } else {
+      row.appendChild(wrap);
+      if (replyBtn) row.appendChild(replyBtn);
+    }
+
     messagesEl.appendChild(row);
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
