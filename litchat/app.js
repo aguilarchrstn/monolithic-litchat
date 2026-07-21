@@ -201,7 +201,25 @@ io.on('connection', (socket) => {
     const clean = sanitizeText(rawText);
     if (!clean.trim() || !id) return;
 
-    partnerSocket.emit('chat-message', { id, text: clean });
+    // Optional quoted-reply context. "from" is relative to the sender of THIS
+    // message, so it must flip perspective before reaching the recipient
+    // (whatever was the sender's own earlier message is the recipient's
+    // "stranger" message, and vice versa).
+    let replyTo = null;
+    const rawReply = payload && typeof payload === 'object' ? payload.replyTo : null;
+    if (rawReply && typeof rawReply === 'object') {
+      const replyId = typeof rawReply.id === 'string' ? rawReply.id.slice(0, 64) : null;
+      const replyFrom = rawReply.from === 'you' || rawReply.from === 'stranger' ? rawReply.from : null;
+      if (replyId && replyFrom) {
+        replyTo = {
+          id: replyId,
+          text: sanitizeText(rawReply.text).slice(0, 300),
+          from: replyFrom === 'you' ? 'stranger' : 'you',
+        };
+      }
+    }
+
+    partnerSocket.emit('chat-message', { id, text: clean, replyTo });
     // Delivery ack: the partner's socket successfully received the event.
     socket.emit('message-delivered', { id });
   });
@@ -571,7 +589,7 @@ function getHTML() {
   #messages::-webkit-scrollbar-thumb { background: rgba(139,92,246,0.35); border-radius: 8px; }
   #messages::-webkit-scrollbar-track { background: transparent; }
 
-  .msg-row { display: flex; }
+  .msg-row { display: flex; align-items: flex-end; gap: 6px; }
   .msg-row.you { justify-content: flex-end; }
   .msg-row.stranger { justify-content: flex-start; }
 
@@ -674,6 +692,105 @@ function getHTML() {
   .bubble.reactable:active {
     transform: scale(0.985);
   }
+
+  @keyframes flashHighlight {
+    0%, 100% { box-shadow: 0 2px 10px rgba(0,0,0,0.18); }
+    30% { box-shadow: 0 0 0 3px rgba(139,92,246,0.85); }
+  }
+  .bubble.highlight-flash {
+    animation: flashHighlight 1s ease;
+  }
+
+  .reply-trigger {
+    flex-shrink: 0;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.07);
+    border: 1px solid rgba(255,255,255,0.12);
+    color: var(--text-dim);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    opacity: 0;
+    padding: 0;
+    margin-bottom: 4px;
+    transition: opacity 0.15s ease, background 0.15s ease, transform 0.1s ease;
+  }
+  .reply-trigger svg { width: 13px; height: 13px; display: block; }
+  @media (hover: hover) {
+    .msg-row:hover .reply-trigger { opacity: 0.8; }
+    .reply-trigger:hover { opacity: 1 !important; background: rgba(255,255,255,0.18); transform: scale(1.08); }
+  }
+  @media (hover: none) {
+    .reply-trigger { opacity: 0.5; }
+  }
+
+  .quoted-reply {
+    border-left: 3px solid rgba(255,255,255,0.45);
+    background: rgba(0,0,0,0.16);
+    border-radius: 6px;
+    padding: 5px 9px;
+    margin-bottom: 6px;
+    cursor: pointer;
+    transition: background 0.12s ease;
+  }
+  .quoted-reply:hover { background: rgba(0,0,0,0.26); }
+  .quoted-reply-label {
+    font-size: 11px;
+    font-weight: 700;
+    opacity: 0.85;
+    margin-bottom: 1px;
+  }
+  .quoted-reply-text {
+    font-size: 12.5px;
+    opacity: 0.85;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  #replyPreviewBar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 22px;
+    background: rgba(139,92,246,0.09);
+    border-top: 1px solid var(--border-soft);
+  }
+  #replyPreviewBar.hidden { display: none; }
+  .reply-preview-accent {
+    width: 3px;
+    align-self: stretch;
+    border-radius: 2px;
+    background: var(--accent);
+    flex-shrink: 0;
+  }
+  .reply-preview-content { flex-grow: 1; min-width: 0; }
+  .reply-preview-label {
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--accent-hover);
+    margin-bottom: 2px;
+  }
+  .reply-preview-text {
+    font-size: 13px;
+    color: var(--text-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #cancelReplyBtn {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-size: 15px;
+    cursor: pointer;
+    flex-shrink: 0;
+    padding: 4px;
+  }
+  #cancelReplyBtn:hover { color: #fff; }
 
   #reactionPicker {
     position: fixed;
